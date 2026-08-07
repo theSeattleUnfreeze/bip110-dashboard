@@ -46,6 +46,26 @@
 !/scripts/install-local-hooks.sh
 !/scripts/pre-push-anon-check.example.sh
 
+!/web/
+/web/*
+!/web/package.json
+!/web/package-lock.json
+!/web/tsconfig.json
+!/web/next.config.ts
+!/web/next-env.d.ts
+!/web/postcss.config.mjs
+!/web/tailwind.config.ts
+!/web/Dockerfile
+!/web/app/
+/web/app/*
+!/web/app/**
+!/web/components/
+/web/components/*
+!/web/components/**
+!/web/lib/
+/web/lib/*
+!/web/lib/**
+
 # 3. Y aun asi, negar de forma explicita lo que nunca debe entrar aunque
 #    alguien afloje las reglas de arriba. Cinturon y tirantes.
 #
@@ -59,6 +79,7 @@
 CLAUDE.md
 CUADERNO.md
 scripts/local/
+/web/node_modules/
 *.notes.md
 *.borrador.md
 #

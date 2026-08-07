@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0a0a0a;
+  --foreground: #f4f4f5;
+  --muted: #a1a1aa;
+  --card: #18181b;
+  --border: #27272a;
+  --primary: #f59e0b;
+}
+
+html.light {
+  --background: #fafafa;
+  --foreground: #18181b;
+  --muted: #71717a;
+  --card: #ffffff;
+  --border: #e4e4e7;
+  --primary: #d97706;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
