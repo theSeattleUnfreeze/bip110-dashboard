@@ -49,7 +49,7 @@ TTL = {
     "signal_map": int(os.environ.get("SIGNAL_MAP_TTL", "600")),
     "metrics": int(os.environ.get("CHAINS_TTL", "60")),
     "replay": int(os.environ.get("HISTORY_TTL", "3600")),
-    "replay": int(os.environ.get("HISTORY_TTL", "3600")),
+    "profitability": int(os.environ.get("CHAINS_TTL", "60")),
     # Los periodos cerrados no cambian; el TTL solo controla cada cuanto se
     # comprueba si ha cerrado uno nuevo.
     "history": int(os.environ.get("HISTORY_TTL", "3600")),
