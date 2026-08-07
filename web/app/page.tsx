@@ -1,4 +1,6 @@
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { BlockFilmExplorer } from "@/components/BlockFilmExplorer";
+import { MomentumChart } from "@/components/MomentumChart";
 import { fetchApi, type ChainResponse, type MandatoryClock, type SignalingResponse } from "@/lib/api";
 import Link from "next/link";
 
@@ -17,12 +19,14 @@ export default async function LivePage() {
   let chain: ChainResponse | null = null;
   let clock: MandatoryClock | null = null;
   let signaling: SignalingResponse | null = null;
+  let signalMap: { bitsBase64?: string; opReturnLayer?: number[]; from?: number; bit4HashpowerEstimate?: { signalingSharePct?: number } } | null = null;
   let err = "";
 
   try {
     chain = await fetchApi<ChainResponse>("/api/chain");
     clock = await fetchApi<MandatoryClock>("/api/mandatory-clock");
     signaling = await fetchApi<SignalingResponse>("/api/signaling");
+    signalMap = await fetchApi("/api/signal-map");
   } catch (e) {
     err = e instanceof Error ? e.message : "API unreachable";
   }
@@ -95,7 +99,7 @@ export default async function LivePage() {
       </section>
 
       {signaling && (
-        <section className="rounded-xl border border-border bg-card p-4">
+        <section className="mb-8 rounded-xl border border-border bg-card p-4">
           <h2 className="mb-4 text-lg font-medium">Signaling heatmap (current period)</h2>
           <p className="mb-3 text-sm text-muted">
             {signaling.summary.count} / {signaling.summary.threshold} signals · {signaling.summary.remaining} blocks left in period
@@ -110,6 +114,26 @@ export default async function LivePage() {
               />
             ))}
           </div>
+        </section>
+      )}
+
+      {signalMap && (
+        <section className="mb-8 space-y-6 rounded-xl border border-border bg-card p-4">
+          <h2 className="text-lg font-medium">Signaling analytics</h2>
+          <p className="text-sm text-muted">
+            Bit-4 share in period: {signalMap.bit4HashpowerEstimate?.signalingSharePct ?? "—"}%
+          </p>
+          <MomentumChart
+            points={signaling?.blocks.map((b, i) => ({
+              height: b.height,
+              share: signaling.blocks.slice(0, i + 1).filter((x) => x.signals_bip110).length / (i + 1) * 100,
+            })) ?? []}
+          />
+          <BlockFilmExplorer
+            bitsBase64={signalMap.bitsBase64}
+            opReturn={signalMap.opReturnLayer}
+            from={signalMap.from}
+          />
         </section>
       )}
     </DashboardLayout>
