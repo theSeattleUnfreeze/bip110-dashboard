@@ -23,6 +23,7 @@ import mandatory_clock as mandatory_clockmod
 import signal_map as signal_mapmod
 import metrics as metricsmod
 import replay as replaymod
+import profitability as profitabilitymod
 
 app = Flask(__name__, static_folder="static")
 
@@ -47,6 +48,8 @@ TTL = {
     "mandatory_clock": int(os.environ.get("CHAINS_TTL", "60")),
     "signal_map": int(os.environ.get("SIGNAL_MAP_TTL", "600")),
     "metrics": int(os.environ.get("CHAINS_TTL", "60")),
+    "replay": int(os.environ.get("HISTORY_TTL", "3600")),
+    "replay": int(os.environ.get("HISTORY_TTL", "3600")),
     # Los periodos cerrados no cambian; el TTL solo controla cada cuanto se
     # comprueba si ha cerrado uno nuevo.
     "history": int(os.environ.get("HISTORY_TTL", "3600")),
@@ -1417,6 +1420,33 @@ def health():
     return jsonify(out), code
 
 
+@app.route("/api/profitability")
+def api_profitability_route():
+    hashrate = request.args.get("hashrate", type=float, default=100)
+    power_w = request.args.get("power_w", type=float, default=3000)
+    elec = request.args.get("elec_kwh", type=float, default=0.12)
+    pool_fee = request.args.get("pool_fee", type=float, default=2)
+    btc_price = request.args.get("btc_price", type=float, default=100000)
+
+    def build():
+        chain = _build_chains()
+        metrics = chain.get("metrics") or {}
+        core_d = metrics.get("core", {}).get("difficulty") or 0
+        knots_d = metrics.get("knots", {}).get("difficulty") or core_d
+        return profitabilitymod.compare_chains(
+            core_d, knots_d, hashrate, power_w, elec, pool_fee, btc_price,
+        )
+    return jsonify(_cached("profitability", build))
+
+
+@app.route("/api/metrics")
+def api_metrics_route():
+    def build():
+        chain = _build_chains()
+        return chain.get("metrics") or {}
+    return jsonify(_cached("metrics", build))
+
+
 @app.route("/api/replay")
 def api_replay_route():
     from_h = request.args.get("from", type=int)
@@ -1429,11 +1459,6 @@ def api_replay_route():
         hi = to_h if to_h is not None else max(core.get_block_count(), knots.get_block_count())
         return replaymod.walk(core, knots, lo, hi)
     return jsonify(_cached("replay", build))
-def api_metrics_route():
-    def build():
-        chain = _build_chains()
-        return chain.get("metrics") or {}
-    return jsonify(_cached("metrics", build))
 
 
 @app.route("/api/signaling")

@@ -5,6 +5,8 @@ const links = [
   { href: "/prepare", label: "Prepare" },
   { href: "/consensus", label: "Consensus" },
   { href: "/analyzer", label: "Analyzer" },
+  { href: "/replay", label: "Replay" },
+  { href: "/profitability", label: "Profit" },
 ];
 
 export function SiteHeader() {
