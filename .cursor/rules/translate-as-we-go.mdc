@@ -1,0 +1,40 @@
+---
+description: Translate Spanish fork code to English incrementally with tests first
+globs: app/**/*.{py,js},entrypoint.sh,deploy/**/*.sh,web/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Translate as we go (English)
+
+The forked bip110-observer code uses Spanish in comments and some API strings. New dashboard code is English. Migrate legacy code incrementally — never big-bang translation PRs.
+
+## New code
+
+- Write **all comments** in English immediately (Python, shell, TS/TSX, inline HTML/JS comments).
+- User-facing strings in `web/` stay English. API `error` fields should be English for new endpoints.
+
+## Editing existing code
+
+When you open a function or change a contiguous block in legacy code:
+
+1. **Test first** — add or extend unit tests that lock **current behavior** (Spanish strings in assertions are fine until step 2).
+2. **Translate that block** — comments (and API user-facing strings in that block, if any) to English in the **same PR**.
+3. **Update tests** if assertions referenced Spanish text that you translated.
+
+Do not translate untouched functions/files in a feature PR. Scope translation to blocks you had to read or modify.
+
+## Legacy bilingual UI (`app/static/*.html`)
+
+- `en` / `es` i18n dictionaries stay until `/legacy` retirement or an explicit English-only decision.
+- Translate **comments** in those files when you touch them; do not remove `es:` keys without updating `test_i18n.py` and `stress.js`.
+
+## Verification
+
+After touching `app/` Python:
+
+```bash
+cd app && python3 test_i18n.py && python3 test_pace.py
+# plus any new tests for the block you changed
+```
+
+After touching legacy UI JS/HTML: `node stress.js` when behavior or strings change.

@@ -4,28 +4,48 @@ services:
     container_name: bip110-observer
     restart: unless-stopped
 
-    # SOLO se escucha en localhost. Detras van Nginx y Cloudflare, y si el
-    # puerto quedara abierto a todas las interfaces cualquiera entraria por
-    # IP:8110 saltandose los dos. Para probar en local sin proxy delante,
-    # cambiar a "8110:8110".
+    # Bind to localhost only. Nginx and Cloudflare sit in front; if the port
+    # were open on all interfaces anyone could hit IP:8110 and bypass both.
+    # For local testing without a proxy, change to "8110:8110".
     ports:
       - "127.0.0.1:8110:8110"
 
     environment:
+      # ------------------------------------------------------------------
+      # CANONICAL NODE: does NOT enforce BIP-110 (Bitcoin Core).
+      # Uses the first URL that responds. Clearnet first because it is much
+      # faster; from a VPS it fails in a few seconds and settles on Tor with
+      # no manual change.
+      # ------------------------------------------------------------------
       BTC_RPC_URL: "${BTC_RPC_URL:-}"
       BTC_RPC_TOR_URL: "${BTC_RPC_TOR_URL:-}"
       BTC_RPC_USER: "${BTC_RPC_USER}"
       BTC_RPC_PASSWORD: "${BTC_RPC_PASSWORD}"
+
+      # ------------------------------------------------------------------
+      # BIP-110 NODE (Knots with reduced_data). Optional but recommended:
+      # without it there is no chain comparison or split detection.
+      # ------------------------------------------------------------------
       BTC_RPC_URL_KNOTS: "${BTC_RPC_URL_KNOTS:-}"
       BTC_RPC_TOR_URL_KNOTS: "${BTC_RPC_TOR_URL_KNOTS:-}"
       BTC_RPC_USER_KNOTS: "${BTC_RPC_USER_KNOTS:-}"
       BTC_RPC_PASSWORD_KNOTS: "${BTC_RPC_PASSWORD_KNOTS:-}"
+
+      # Remember the chosen URL for a while; invalidated as soon as a call fails.
       RPC_PICK_TTL: "${RPC_PICK_TTL:-120}"
       RPC_PROBE_TIMEOUT: "${RPC_PROBE_TIMEOUT:-6}"
+
+      # ------------------------------------------------------------------
+      # P2P crawl
+      # ------------------------------------------------------------------
       CRAWL_VIA_TOR: "${CRAWL_VIA_TOR:-false}"
       CRAWL_INCLUDE_ONION: "${CRAWL_INCLUDE_ONION:-true}"
       CRAWL_MAX_NODES: "${CRAWL_MAX_NODES:-250}"
       CRAWL_MAX_SEEDS: "${CRAWL_MAX_SEEDS:-60}"
+
+      # ------------------------------------------------------------------
+      # Samples and cache
+      # ------------------------------------------------------------------
       POOLS_SAMPLE: "${POOLS_SAMPLE:-500}"
       HISTORY_PERIODS: "${HISTORY_PERIODS:-5}"
       MINERS_TTL: "${MINERS_TTL:-300}"
@@ -37,16 +57,23 @@ services:
       HISTORY_TTL: "${HISTORY_TTL:-3600}"
       ELECTRUM_URL: "${ELECTRUM_URL:-}"
       ELECTRUM_URL_KNOTS: "${ELECTRUM_URL_KNOTS:-}"
+
+      # Intentional: closed retarget periods and split height live here;
+      # they must not be lost — split height is a historical fact.
       CACHE_DIR: "/data"
 
     volumes:
       - bip110-data:/data
 
     healthcheck:
+      # /api/health returns 503 if the canonical node does not answer.
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8110/api/health"]
+      # Margin above HEALTH_TIMEOUT (12s default): the endpoint cuts itself
+      # off, so the healthcheck should never hit its own limit. If it does,
+      # something is very wrong.
       interval: 60s
       timeout: 45s
-      start_period: 240s
+      start_period: 240s   # Tor startup and circuit build takes time
       retries: 3
 
     logging:

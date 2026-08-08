@@ -66,6 +66,12 @@
 /web/lib/*
 !/web/lib/**
 
+!.cursor/
+/.cursor/*
+!/.cursor/rules/
+/.cursor/rules/*
+!/.cursor/rules/**
+
 # 3. Y aun asi, negar de forma explicita lo que nunca debe entrar aunque
 #    alguien afloje las reglas de arriba. Cinturon y tirantes.
 #
