@@ -24,6 +24,7 @@ import signal_map as signal_mapmod
 import metrics as metricsmod
 import replay as replaymod
 import profitability as profitabilitymod
+import tx_inspect as tx_inspectmod
 
 app = Flask(__name__, static_folder="static")
 
@@ -1474,6 +1475,23 @@ def api_mandatory_clock_route():
 @app.route("/api/signal-map")
 def api_signal_map_route():
     return jsonify(_cached_bg("signal_map", _api_signal_map))
+
+
+@app.route("/api/tx-inspect")
+def api_tx_inspect_route():
+    txid = request.args.get("txid", "")
+    chain_out = _build_chains()
+    saved = _load_state()
+    rpc_map = {}
+    for name in NODE_NAMES:
+        if not _node_configured(name):
+            continue
+        try:
+            rpc_map[name] = _rpc(name)
+        except Exception:
+            rpc_map[name] = None
+    out = tx_inspectmod.inspect(txid, rpc_map, saved, chain_out)
+    return jsonify(out)
 
 
 def _calentar():
