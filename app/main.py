@@ -22,7 +22,6 @@ from chain_adapter import ChainClient
 import mandatory_clock as mandatory_clockmod
 import signal_map as signal_mapmod
 import metrics as metricsmod
-import replay as replaymod
 
 app = Flask(__name__, static_folder="static")
 
@@ -1417,18 +1416,7 @@ def health():
     return jsonify(out), code
 
 
-@app.route("/api/replay")
-def api_replay_route():
-    from_h = request.args.get("from", type=int)
-    to_h = request.args.get("to", type=int)
-    def build():
-        core = _rpc("core")
-        knots = _rpc("knots")
-        split = _load_state().get("split_height")
-        lo = from_h if from_h is not None else (split or 0)
-        hi = to_h if to_h is not None else max(core.get_block_count(), knots.get_block_count())
-        return replaymod.walk(core, knots, lo, hi)
-    return jsonify(_cached("replay", build))
+@app.route("/api/metrics")
 def api_metrics_route():
     def build():
         chain = _build_chains()
