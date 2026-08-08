@@ -18,6 +18,9 @@ from rpc import BitcoinRPC
 import signaling
 import pools as poolsmod
 import crawler as crawlermod
+from chain_adapter import ChainClient
+import mandatory_clock as mandatory_clockmod
+import signal_map as signal_mapmod
 
 app = Flask(__name__, static_folder="static")
 
@@ -38,6 +41,9 @@ TTL = {
     "pools": int(os.environ.get("POOLS_TTL", "3600")),
     "nodes": int(os.environ.get("NODES_TTL", "3600")),
     "chains": int(os.environ.get("CHAINS_TTL", "60")),
+    "signaling": int(os.environ.get("MINERS_TTL", "300")),
+    "mandatory_clock": int(os.environ.get("CHAINS_TTL", "60")),
+    "signal_map": int(os.environ.get("SIGNAL_MAP_TTL", "600")),
     # Los periodos cerrados no cambian; el TTL solo controla cada cuanto se
     # comprueba si ha cerrado uno nuevo.
     "history": int(os.environ.get("HISTORY_TTL", "3600")),
@@ -216,6 +222,60 @@ def _pick_node():
     """Nodo pedido en la query. Cualquier valor raro cae en el canonico."""
     node = (request.args.get("node") or DEFAULT_NODE).lower()
     return node if node in NODE_NAMES else DEFAULT_NODE
+
+
+def _chain_client(node=DEFAULT_NODE):
+    rpc = _rpc(node)
+    electrum_env = {
+        "core": "ELECTRUM_URL",
+        "knots": "ELECTRUM_URL_KNOTS",
+    }
+    key = electrum_env.get(node, "ELECTRUM_URL")
+    return ChainClient(rpc, electrum_url=os.environ.get(key, ""))
+
+
+def _api_signaling():
+    node = _pick_node()
+    client = _chain_client(node)
+    tip = client.get_block_count()
+    start, end = signaling.period_bounds(tip)
+    scan_end = min(end, tip)
+    headers = client.headers_for_range(start, scan_end)
+    blocks = [
+        {
+            "height": h["height"],
+            "version": h["version"],
+            "signals_bip110": signaling.signals_bit(h["version"]),
+            "time": h["time"],
+        }
+        for h in headers
+    ]
+    summary = signaling.analyse(client, 0)
+    return {
+        "label": "verifiable",
+        "node": node,
+        "period_start": start,
+        "period_end": end,
+        "tip": tip,
+        "blocks": blocks,
+        "summary": summary,
+        "updated": int(time.time()),
+    }
+
+
+def _api_mandatory_clock():
+    client = _chain_client(DEFAULT_NODE)
+    return mandatory_clockmod.build(client)
+
+
+def _api_signal_map():
+    cached = signal_mapmod.load_cached(CACHE_DIR) if CACHE_DIR else None
+    if cached and time.time() - cached.get("updated", 0) < signal_mapmod.REFRESH_SEC:
+        return cached
+    client = _chain_client(DEFAULT_NODE)
+    data = signal_mapmod.build(client, op_return=False)
+    signal_mapmod.save_cached(CACHE_DIR, data)
+    return data
 
 
 # Endpoints que pueden tardar minutos: el sondeo del P2P, el escaneo de
@@ -1346,6 +1406,21 @@ def health():
             entry["configured"] = [{"via": c["via"], "id": _huella(c["url"])}
                                    for c in entry["configured"]]
     return jsonify(out), code
+
+
+@app.route("/api/signaling")
+def api_signaling_route():
+    return jsonify(_cached("signaling", _api_signaling, _pick_node()))
+
+
+@app.route("/api/mandatory-clock")
+def api_mandatory_clock_route():
+    return jsonify(_cached("mandatory_clock", _api_mandatory_clock))
+
+
+@app.route("/api/signal-map")
+def api_signal_map_route():
+    return jsonify(_cached_bg("signal_map", _api_signal_map))
 
 
 def _calentar():
