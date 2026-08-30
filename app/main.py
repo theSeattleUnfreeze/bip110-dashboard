@@ -14,13 +14,14 @@ import time
 import threading
 from flask import Flask, jsonify, request, send_from_directory
 
-from rpc import BitcoinRPC
+from rpc import BitcoinRPC, RPCError
 import signaling
 import pools as poolsmod
 import crawler as crawlermod
 from chain_adapter import ChainClient
 import mandatory_clock as mandatory_clockmod
 import signal_map as signal_mapmod
+import regnet_blocks as regnetmod
 
 app = Flask(__name__, static_folder="static")
 
@@ -1421,6 +1422,64 @@ def api_mandatory_clock_route():
 @app.route("/api/signal-map")
 def api_signal_map_route():
     return jsonify(_cached_bg("signal_map", _api_signal_map))
+
+
+def _regnet_disabled_response():
+    return jsonify({
+        "ok": False,
+        "error": "regnet_disabled",
+        "hint": "Set REGNET_ENABLED=1 and BTC_RPC_URL_REGNET (cookie preferred).",
+    }), 404
+
+
+def _regnet_error_response(exc):
+    msg = str(exc)
+    # Never echo cookie path contents; path itself is ok as a hint.
+    code = 502
+    err = "regnet_rpc_error"
+    if "cookie" in msg.lower() or "401" in msg:
+        err = "regnet_auth_error"
+        code = 503
+    elif "not set" in msg.lower() or "not configured" in msg.lower():
+        err = "regnet_not_configured"
+        code = 503
+    return jsonify({"ok": False, "error": err, "hint": msg}), code
+
+
+@app.route("/api/regnet/tip")
+def api_regnet_tip():
+    if not regnetmod.enabled():
+        return _regnet_disabled_response()
+    if not regnetmod.configured():
+        return jsonify({
+            "ok": False,
+            "error": "regnet_not_configured",
+            "hint": "Set BTC_RPC_URL_REGNET (and BTC_RPC_COOKIE_REGNET).",
+        }), 503
+    try:
+        return jsonify(regnetmod.get_tip())
+    except (RPCError, RuntimeError, OSError) as e:
+        return _regnet_error_response(e)
+
+
+@app.route("/api/regnet/blocks")
+def api_regnet_blocks():
+    if not regnetmod.enabled():
+        return _regnet_disabled_response()
+    if not regnetmod.configured():
+        return jsonify({
+            "ok": False,
+            "error": "regnet_not_configured",
+            "hint": "Set BTC_RPC_URL_REGNET (and BTC_RPC_COOKIE_REGNET).",
+        }), 503
+    try:
+        limit = int(request.args.get("limit") or regnetmod.DEFAULT_BLOCK_LIMIT)
+    except (TypeError, ValueError):
+        limit = regnetmod.DEFAULT_BLOCK_LIMIT
+    try:
+        return jsonify(regnetmod.get_blocks(limit))
+    except (RPCError, RuntimeError, OSError) as e:
+        return _regnet_error_response(e)
 
 
 def _calentar():
