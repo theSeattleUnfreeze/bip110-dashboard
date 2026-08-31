@@ -85,6 +85,41 @@ curl -s localhost:8110/api/health
 - Match bip110-observer epistemic tiers: label data as **verifiable**, **estimate**, or **biased sample** in UI.
 - Prefer placeholders in examples: `STARTOS_HOST`, `VPS_PUBLIC_IP`, not real infrastructure names.
 - Minimize scope per PR; do not mix anonymity tooling changes with feature work unless necessary.
+- **English migration:** see [Translate as we go](#translate-as-we-go) below.
+
+---
+
+## Translate as we go
+
+Forked observer code uses Spanish in comments and some API messages. Migrate to English incrementally — no mass-translation PRs.
+
+### New code
+
+- All **comments** in English from the first line (Python, shell, TypeScript, inline comments in HTML/JS).
+- New API user-facing strings in English.
+
+### Editing existing code
+
+When you enter a function or change a contiguous block:
+
+1. **Test** — add or extend unit tests that capture **current behavior** before translating.
+2. **Translate** — that same block’s comments (and user-facing strings in that block) to English in the same PR.
+3. **Update tests** if they asserted Spanish text you translated.
+
+Do not translate untouched files in a feature PR.
+
+### Legacy static UI
+
+`app/static/index.html` and `methodology.html` keep bilingual `en` / `es` user strings until Next.js replaces them or we explicitly drop Spanish. Translate comments when you touch those files; changing `es:` keys requires `test_i18n.py` and `stress.js` updates.
+
+### Checks
+
+```bash
+cd app && python3 test_i18n.py && python3 test_pace.py
+node stress.js   # when legacy UI/JS changes
+```
+
+Cursor rule: `.cursor/rules/translate-as-we-go.mdc`.
 
 ---
 
