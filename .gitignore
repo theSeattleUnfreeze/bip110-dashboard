@@ -46,6 +46,10 @@
 !/scripts/install-local-hooks.sh
 !/scripts/pre-push-anon-check.example.sh
 
+!/docs/
+/docs/*
+!/docs/*.md
+
 !/web/
 /web/*
 !/web/package.json

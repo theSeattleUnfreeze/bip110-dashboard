@@ -1,10 +1,11 @@
 """
-Cliente JSON-RPC para Bitcoin Core.
+JSON-RPC client for Bitcoin Core / Knots.
 
-Soporta:
+Supports:
   - clearnet (http://host:8332)
-  - Tor (http://xxxxx.onion:8332) via SOCKS5h, resolviendo el .onion en el proxy
-  - batching (imprescindible: escanear 2016 bloques uno a uno es lentísimo)
+  - Tor (http://xxxxx.onion:8332) via SOCKS5h (onion resolved by the proxy)
+  - cookie-file auth (__cookie__:<secret> from the node datadir)
+  - batching (needed: scanning 2016 blocks one-by-one is very slow)
 """
 
 import os
@@ -17,28 +18,73 @@ class RPCError(Exception):
     pass
 
 
+def _read_cookie_file(path):
+    """
+    Bitcoin Core / Knots writes `.cookie` as `user:password` (no trailing junk
+    beyond optional newline). Never log the secret.
+    """
+    path = (path or "").strip()
+    if not path:
+        raise RPCError("RPC cookie path is empty")
+    if not os.path.isfile(path):
+        raise RPCError("RPC cookie file missing or unreadable")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            line = f.read().strip()
+    except OSError as e:
+        raise RPCError("RPC cookie file missing or unreadable") from e
+    if ":" not in line:
+        raise RPCError("RPC cookie file malformed")
+    user, password = line.split(":", 1)
+    if not user:
+        raise RPCError("RPC cookie file malformed")
+    return user, password
+
+
 class BitcoinRPC:
     def __init__(self, url=None, user=None, password=None,
-                 tor_proxy=None, timeout=120):
+                 cookie_path=None, tor_proxy=None, timeout=120):
         self.url = url or os.environ.get("BTC_RPC_URL", "http://127.0.0.1:8332")
-        self.user = user if user is not None else os.environ.get("BTC_RPC_USER", "")
-        self.password = password if password is not None else os.environ.get("BTC_RPC_PASSWORD", "")
         self.timeout = timeout
         self._id = itertools.count(1)
+
+        # Cookie auth preferred when a path is set (explicit arg or env).
+        env_cookie = os.environ.get("BTC_RPC_COOKIE", "").strip()
+        self.cookie_path = (cookie_path if cookie_path is not None else env_cookie) or ""
+        self.cookie_path = self.cookie_path.strip()
+
+        if self.cookie_path:
+            self.user, self.password = _read_cookie_file(self.cookie_path)
+        else:
+            self.user = user if user is not None else os.environ.get("BTC_RPC_USER", "")
+            self.password = password if password is not None else os.environ.get("BTC_RPC_PASSWORD", "")
 
         self.session = requests.Session()
         self.session.auth = (self.user, self.password)
         self.session.headers.update({"Content-Type": "application/json"})
 
-        # Si el nodo es .onion forzamos SOCKS5h para que la resolución
-        # del hostname la haga Tor y no el contenedor.
+        # Onion URLs force SOCKS5h so Tor resolves the hostname, not the container.
         is_onion = ".onion" in self.url
         proxy = tor_proxy or os.environ.get("TOR_SOCKS", "socks5h://127.0.0.1:9050")
         if is_onion:
             self.session.proxies = {"http": proxy, "https": proxy}
-            self.timeout = max(self.timeout, 180)  # Tor es lento
-
+            self.timeout = max(self.timeout, 180)
         self.is_onion = is_onion
+
+    def _reload_cookie(self):
+        if not self.cookie_path:
+            return False
+        self.user, self.password = _read_cookie_file(self.cookie_path)
+        self.session.auth = (self.user, self.password)
+        return True
+
+    def _post(self, payload, *, _cookie_retried=False):
+        r = self.session.post(self.url, data=json.dumps(payload), timeout=self.timeout)
+        if r.status_code == 401 and self.cookie_path and not _cookie_retried:
+            # Node restart regenerates `.cookie`; reload once and retry.
+            self._reload_cookie()
+            return self._post(payload, _cookie_retried=True)
+        return r
 
     def call(self, method, *params):
         payload = {
@@ -47,12 +93,10 @@ class BitcoinRPC:
             "method": method,
             "params": list(params),
         }
-        r = self.session.post(self.url, data=json.dumps(payload), timeout=self.timeout)
-        # Bitcoin Core responde HTTP 500 a un error de RPC y pone el motivo
-        # en el cuerpo. Con raise_for_status() delante se tiraba justo esa
-        # parte y quedaba un "500 Server Error" que no dice nada: asi se
-        # perdio un dia buscando por que fallaba getnodeaddresses, cuando el
-        # nodo estaba contestando "expected number, got array".
+        r = self._post(payload)
+        # Bitcoin Core answers HTTP 500 on RPC errors with the reason in the
+        # body. raise_for_status() first used to drop that and leave a useless
+        # "500 Server Error".
         if r.status_code >= 400:
             try:
                 err = r.json().get("error")
@@ -60,6 +104,8 @@ class BitcoinRPC:
                 err = None
             if err:
                 raise RPCError(f"{method}: {err}")
+            if r.status_code == 401:
+                raise RPCError(f"{method}: HTTP 401 (RPC auth failed)")
         r.raise_for_status()
         data = r.json()
         if data.get("error"):
@@ -68,13 +114,12 @@ class BitcoinRPC:
 
     def batch(self, calls, _depth=0):
         """
-        calls: lista de tuplas (method, [params...])
-        Devuelve lista de resultados en el mismo orden.
+        calls: list of (method, [params...]) tuples.
+        Returns results in the same order.
 
-        Si la respuesta se corta a media descarga partimos el lote en dos y
-        reintentamos. Pasa con getblock: un bloque actual son unos 250 KB de
-        JSON aunque uses verbosity=1, asi que un lote grande pide decenas de
-        megabytes y por Tor la conexion no siempre aguanta.
+        If the response truncates mid-download, split the batch and retry.
+        getblock verbosity=1 of a full block is ~250 KB of JSON, so a large
+        batch can be tens of MB and Tor connections often cannot finish it.
         """
         if not calls:
             return []
@@ -87,7 +132,9 @@ class BitcoinRPC:
                 "params": list(params),
             })
         try:
-            r = self.session.post(self.url, data=json.dumps(payload), timeout=self.timeout)
+            r = self._post(payload)
+            if r.status_code == 401:
+                raise RPCError(f"batch: HTTP 401 (RPC auth failed)")
             r.raise_for_status()
             data = r.json()
         except (requests.exceptions.ChunkedEncodingError,
@@ -98,15 +145,14 @@ class BitcoinRPC:
                 mid = len(calls) // 2
                 return (self.batch(calls[:mid], _depth + 1) +
                         self.batch(calls[mid:], _depth + 1))
-            raise RPCError(f"batch fallido ({len(calls)} llamadas): {e}") from e
+            raise RPCError(f"batch failed ({len(calls)} calls): {e}") from e
 
-        # El batch puede volver desordenado: reordenamos por id
         by_id = {item["id"]: item for item in data}
         out = []
         for req in payload:
             item = by_id.get(req["id"])
             if item is None:
-                raise RPCError(f"Respuesta batch incompleta para id {req['id']}")
+                raise RPCError(f"Incomplete batch response for id {req['id']}")
             if item.get("error"):
                 raise RPCError(f"{req['method']}: {item['error']}")
             out.append(item["result"])
@@ -128,32 +174,30 @@ class BitcoinRPC:
 
     def get_node_addresses(self, count=500, network=None):
         """
-        Libreta de direcciones del propio nodo (addrman), no sus peers.
+        Node address book (addrman), not current peers.
 
-        Es la diferencia entre "con quien esta hablando ahora" y "a quien
-        conoce". Con un nodo en onlynet=onion lo primero son tres o cuatro
-        direcciones y lo segundo son miles, muchas IPv4 alcanzables en claro.
+        Difference between "who it talks to now" and "who it knows". With
+        onlynet=onion the former is a handful of addresses; the latter can
+        be thousands, many reachable clearnet IPv4.
 
-        'count' se acota a proposito: con 0 devuelve TODO lo que conoce, que
-        por un servicio oculto son megabytes de JSON para el mismo fin.
+        `count` is capped on purpose: 0 returns everything the node knows,
+        which over a hidden service is megabytes of JSON for the same goal.
 
-        El argumento 'network' existe desde Bitcoin Core v22. Si el nodo es
-        mas viejo, la llamada falla y se reintenta sin filtrar.
+        The `network` argument exists since Bitcoin Core v22.
         """
-        # OJO: call() es variadico. Pasarle una lista manda [[500]] al nodo,
-        # que espera un numero, y lo unico que llega de vuelta es un HTTP 500.
+        # call() is variadic. Passing a list sends [[500]] and the node
+        # expects a number → HTTP 500.
         #
-        # Si falla con 'network' NO se reintenta sin el: devolveria la lista
-        # general haciendose pasar por la de esa red, y quien la pidio no se
-        # enteraria. Que falle y se vea.
+        # If `network` fails, do NOT retry without it: that would return the
+        # unfiltered list while pretending it was filtered.
         if network:
             return self.call("getnodeaddresses", count, network)
         return self.call("getnodeaddresses", count)
 
     def headers_for_range(self, start_height, end_height, chunk=250):
         """
-        Devuelve [{height, hash, version, time}] para [start, end] inclusive.
-        Usa batching en dos fases: getblockhash -> getblockheader.
+        Returns [{height, hash, version, time}] for [start, end] inclusive.
+        Two-phase batch: getblockhash → getblockheader.
         """
         out = []
         heights = list(range(start_height, end_height + 1))

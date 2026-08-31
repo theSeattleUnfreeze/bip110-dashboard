@@ -31,6 +31,17 @@ services:
       BTC_RPC_USER_KNOTS: "${BTC_RPC_USER_KNOTS:-}"
       BTC_RPC_PASSWORD_KNOTS: "${BTC_RPC_PASSWORD_KNOTS:-}"
 
+      # ------------------------------------------------------------------
+      # REGNET (Blake2b / BIP-110 Knots) — optional miner live view
+      # ------------------------------------------------------------------
+      REGNET_ENABLED: "${REGNET_ENABLED:-}"
+      BTC_RPC_URL_REGNET: "${BTC_RPC_URL_REGNET:-}"
+      BTC_RPC_COOKIE_REGNET: "${BTC_RPC_COOKIE_REGNET:-}"
+      BTC_RPC_USER_REGNET: "${BTC_RPC_USER_REGNET:-}"
+      BTC_RPC_PASSWORD_REGNET: "${BTC_RPC_PASSWORD_REGNET:-}"
+      REGNET_COINBASE_TAG: "${REGNET_COINBASE_TAG:-}"
+      REGNET_CACHE_TTL: "${REGNET_CACHE_TTL:-1.5}"
+
       # Remember the chosen URL for a while; invalidated as soon as a call fails.
       RPC_PICK_TTL: "${RPC_PICK_TTL:-120}"
       RPC_PROBE_TIMEOUT: "${RPC_PROBE_TIMEOUT:-6}"
@@ -64,6 +75,8 @@ services:
 
     volumes:
       - bip110-data:/data
+      # Optional: mount Knots regnet `.cookie` read-only for /api/regnet/*
+      # - /path/on/host/to/regnet/.cookie:/run/bitcoin-cookies/regnet/.cookie:ro
 
     healthcheck:
       # /api/health returns 503 if the canonical node does not answer.
