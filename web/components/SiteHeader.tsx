@@ -3,6 +3,8 @@ import Link from "next/link";
 const links = [
   { href: "/", label: "Live" },
   { href: "/prepare", label: "Prepare" },
+  { href: "/consensus", label: "Consensus" },
+  { href: "/analyzer", label: "Analyzer" },
 ];
 
 export function SiteHeader() {

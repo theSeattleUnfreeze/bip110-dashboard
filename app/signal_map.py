@@ -103,9 +103,32 @@ def build(client, cache_dir=None, op_return=False):
       "sampling95LowHashesPerSecond": None,
       "sampling95HighHashesPerSecond": None,
     },
-    "opReturnLayer": None if not op_return else [],
+    "opReturnLayer": _op_return_layer(client, headers) if op_return else None,
     "updated": int(time.time()),
   }
+
+
+def _op_return_layer(client, headers, chunk=25):
+  sizes = []
+  for i in range(0, len(headers), chunk):
+    batch_h = headers[i:i + chunk]
+    heights = [h["height"] for h in batch_h]
+    try:
+      hashes = client.batch([("getblockhash", [ht]) for ht in heights])
+      blocks = client.batch([("getblock", [bh, 2]) for bh in hashes])
+    except Exception:
+      sizes.extend([0] * len(batch_h))
+      continue
+    for blk in blocks:
+      max_sz = 0
+      for tx in blk.get("tx", []):
+        for vout in tx.get("vout", []):
+          spk = vout.get("scriptPubKey", {})
+          if spk.get("type") == "nulldata":
+            hexdata = spk.get("hex", "")
+            max_sz = max(max_sz, max(0, len(hexdata) // 2 - 1))
+      sizes.append(max_sz)
+  return sizes
 
 
 def load_cached(cache_dir):

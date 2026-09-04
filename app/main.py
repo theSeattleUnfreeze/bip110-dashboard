@@ -21,6 +21,7 @@ import crawler as crawlermod
 from chain_adapter import ChainClient
 import mandatory_clock as mandatory_clockmod
 import signal_map as signal_mapmod
+import metrics as metricsmod
 
 app = Flask(__name__, static_folder="static")
 
@@ -44,6 +45,7 @@ TTL = {
     "signaling": int(os.environ.get("MINERS_TTL", "300")),
     "mandatory_clock": int(os.environ.get("CHAINS_TTL", "60")),
     "signal_map": int(os.environ.get("SIGNAL_MAP_TTL", "600")),
+    "metrics": int(os.environ.get("CHAINS_TTL", "60")),
     # Los periodos cerrados no cambian; el TTL solo controla cada cuanto se
     # comprueba si ha cerrado uno nuevo.
     "history": int(os.environ.get("HISTORY_TTL", "3600")),
@@ -273,7 +275,7 @@ def _api_signal_map():
     if cached and time.time() - cached.get("updated", 0) < signal_mapmod.REFRESH_SEC:
         return cached
     client = _chain_client(DEFAULT_NODE)
-    data = signal_mapmod.build(client, op_return=False)
+    data = signal_mapmod.build(client, op_return=True)
     signal_mapmod.save_cached(CACHE_DIR, data)
     return data
 
@@ -1250,6 +1252,12 @@ def _build_chains():
     else:
         out["note"] = ("Las cadenas se han separado. Cada cifra vale solo para "
                        "su cadena, y no se suman.")
+    if rpcs:
+        tips = {n: out["nodes"][n]["tip"] for n in rpcs if out["nodes"][n].get("tip")}
+        suelos = {}
+        for n in rpcs:
+            suelos[n] = out.get("split_height") if out["state"] == "split" else None
+        out["metrics"] = metricsmod.for_nodes(rpcs, tips, suelos)
     return out
 
 
@@ -1406,6 +1414,14 @@ def health():
             entry["configured"] = [{"via": c["via"], "id": _huella(c["url"])}
                                    for c in entry["configured"]]
     return jsonify(out), code
+
+
+@app.route("/api/metrics")
+def api_metrics_route():
+    def build():
+        chain = _build_chains()
+        return chain.get("metrics") or {}
+    return jsonify(_cached("metrics", build))
 
 
 @app.route("/api/signaling")
